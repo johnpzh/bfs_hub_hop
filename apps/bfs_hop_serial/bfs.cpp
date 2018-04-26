@@ -7,12 +7,12 @@
 #include <map>
 #include <functional>
 #include <unistd.h>
-#include "../../include/peg_count.h"
 
 using std::string;
 using std::to_string;
 using std::multimap;
 using std::greater;
+using std::pair;
 
 struct Vertex {
 	unsigned *out_neighbors;
@@ -126,7 +126,6 @@ inline void update_dense(
 				frontier_size++;
 				out_degree += graph_degrees[vertex_id];
 
-				bot_access_counter.count(vertex_id);
 			} else {
 				h_graph_mask[vertex_id] = 0;
 			}
@@ -368,7 +367,6 @@ inline unsigned update_sparse(
 		h_cost[end] = h_cost[start] + 1;
 		out_degree += graph_degrees[end];
 
-		bot_access_counter.count(end);
 	}
 
 	return out_degree;
@@ -590,7 +588,7 @@ unsigned *BFS_sparse(
 ///////////////////////////////////////////////////////////////////////////////
 
 
-void graph_prepare(
+unsigned graph_prepare(
 		unsigned *graph_vertices,
 		unsigned *graph_edges,
 		unsigned *graph_heads,
@@ -598,7 +596,9 @@ void graph_prepare(
 		unsigned *graph_degrees,
 		unsigned *tile_offsets,
 		unsigned *tile_sizes,
-		const unsigned &source)
+		const unsigned &source,
+		int *is_hub,
+		unsigned &hops)
 {
 
 	// Set up
@@ -626,6 +626,7 @@ void graph_prepare(
 	h_graph_parents[source] = source;
 
 	// The first time, running the Sparse
+	hops = 0;
 	unsigned frontier_size = 1;
 	unsigned *frontier = (unsigned *) malloc(sizeof(unsigned) * frontier_size);
 	frontier[0] = source;
@@ -639,6 +640,15 @@ void graph_prepare(
 								frontier_size);
 	free(frontier);
 	frontier = new_frontier;
+
+	++hops;
+	unsigned hub_id = if_meet_hubs_sparse(
+								frontier,
+								frontier_size,
+								is_hub);
+	if (hub_id != (unsigned) -1) {
+		return hub_id;
+	}
 	//printf("%d %lf\n", CHUNK_SIZE, run_time = (end_time - start_time));
 
 	// When update the parents, get the sum of the number of active nodes and their out degree.
@@ -675,6 +685,14 @@ void graph_prepare(
 					is_active_side,
 					is_updating_active_side);
 			last_is_dense = true;
+			++hops;
+			hub_id = if_meet_hubs_dense(
+								h_updating_graph_mask,
+								is_updating_active_side,
+								is_hub);
+			if (hub_id != (unsigned) -1) {
+				return hub_id;
+			}
 			// Update the parents, and get the out_degree again
 			update_dense(
 					frontier_size,
@@ -706,6 +724,14 @@ void graph_prepare(
 								frontier_size);
 			free(frontier);
 			frontier = new_frontier;
+			++hops;
+			hub_id = if_meet_hubs_sparse(
+									frontier,
+									frontier_size,
+									is_hub);
+			if (hub_id != (unsigned) -1) {
+				return hub_id;
+			}
 			last_is_dense = false;
 			// Update the parents, and get the out_degree again
 			if (0 == frontier_size) {
@@ -721,7 +747,7 @@ void graph_prepare(
 	}
 	double end_time = omp_get_wtime();
 	double run_time;
-	fprintf(stderr, "%d %lf\n", NUM_THREADS, run_time = (end_time - start_time));
+	//fprintf(stderr, "%d %lf\n", NUM_THREADS, run_time = (end_time - start_time));
 	free(frontier);
 	free( h_graph_mask);
 	free( h_updating_graph_mask);
@@ -729,6 +755,8 @@ void graph_prepare(
 	free( h_cost);
 	free( is_active_side);
 	free( is_updating_active_side);
+
+	return (unsigned) -1;
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -855,13 +883,6 @@ void graph_input(
 		is_hub[vertex_id] = 1;
 		++num_hubs;
 	}
-	//test
-	for (auto el : degree_to_id) {
-		unsigned degree = el.first;
-		unsigned id = el.second;
-		printf("degree[%u]: %u, is_hub[%u]: %d\n", id, degree, id, is_hub[id]);
-	}
-	exit(1);
 
 	NUM_THREADS = 64;
 	edge_bound = NEDGES / NUM_THREADS;
@@ -906,284 +927,27 @@ void graph_input(
 
 
 }
-//void input( int argc, char** argv) 
-//{
-//	char *input_f;
-//	//ROW_STEP = 2;
-//	
-//	if(argc < 4){
-//		//input_f = "/home/zpeng/benchmarks/data/pokec_combine/soc-pokec";
-//		input_f = "/sciclone/scr-mlt/zpeng01/pokec_combine/soc-pokec";
-//		TILE_WIDTH = 1024;
-//		ROW_STEP = 16;
-//	} else {
-//		input_f = argv[1];
-//		TILE_WIDTH = strtoul(argv[2], NULL, 0);
-//		ROW_STEP = strtoul(argv[3], NULL, 0);
-//	}
-//
-//	/////////////////////////////////////////////////////////////////////
-//	// Input real dataset
-//	/////////////////////////////////////////////////////////////////////
-//	//string prefix = string(input_f) + "_untiled";
-//	//string prefix = string(input_f) + "_coo-tiled-" + to_string(TILE_WIDTH);
-//	string prefix = string(input_f) + "_col-" + to_string(ROW_STEP) + "-coo-tiled-" + to_string(TILE_WIDTH);
-//	//string prefix = string(input_f) + "_col-2-coo-tiled-" + to_string(TILE_WIDTH);
-//	string fname = prefix + "-0";
-//	FILE *fin = fopen(fname.c_str(), "r");
-//	fscanf(fin, "%u %u", &NNODES, &NEDGES);
-//	fclose(fin);
-//	if (NNODES % TILE_WIDTH) {
-//		SIDE_LENGTH = NNODES / TILE_WIDTH + 1;
-//	} else {
-//		SIDE_LENGTH = NNODES / TILE_WIDTH;
-//	}
-//	NUM_TILES = SIDE_LENGTH * SIDE_LENGTH;
-//	// Read tile Offsets
-//	fname = prefix + "-offsets";
-//	fin = fopen(fname.c_str(), "r");
-//	if (!fin) {
-//		fprintf(stderr, "cannot open file: %s\n", fname.c_str());
-//		exit(1);
-//	}
-//	unsigned *tile_offsets = (unsigned *) malloc(NUM_TILES * sizeof(unsigned));
-//	for (unsigned i = 0; i < NUM_TILES; ++i) {
-//		fscanf(fin, "%u", tile_offsets + i);
-//	}
-//	fclose(fin);
-//	unsigned *graph_heads = (unsigned *) malloc(sizeof(unsigned) * NEDGES);
-//	unsigned *graph_tails = (unsigned *) malloc(sizeof(unsigned) * NEDGES);
-//	int *is_empty_tile = (int *) malloc(sizeof(int) * NUM_TILES);
-//	memset(is_empty_tile, 0, sizeof(int) * NUM_TILES);
-//
-//	NUM_THREADS = 64;
-//	unsigned edge_bound = NEDGES / NUM_THREADS;
-//#pragma omp parallel num_threads(NUM_THREADS) private(fname, fin)
-//{
-//	unsigned tid = omp_get_thread_num();
-//	unsigned offset = tid * edge_bound;
-//	fname = prefix + "-" + to_string(tid);
-//	fin = fopen(fname.c_str(), "r");
-//	if (!fin) {
-//		fprintf(stderr, "Error: cannot open file %s\n", fname.c_str());
-//		exit(1);
-//	}
-//	if (0 == tid) {
-//		fscanf(fin, "%u %u", &NNODES, &NEDGES);
-//	}
-//	unsigned bound_index;
-//	if (NUM_THREADS - 1 != tid) {
-//		bound_index = offset + edge_bound;
-//	} else {
-//		bound_index = NEDGES;
-//	}
-//	for (unsigned index = offset; index < bound_index; ++index) {
-//		unsigned n1;
-//		unsigned n2;
-//		fscanf(fin, "%u %u", &n1, &n2);
-//		n1--;
-//		n2--;
-//		graph_heads[index] = n1;
-//		graph_tails[index] = n2;
-//	}
-//	fclose(fin);
-//
-//}
-//
-//
-//	// For Sparse
-//	prefix = string(input_f) + "_untiled";
-//	unsigned *graph_edges = (unsigned *) malloc(sizeof(unsigned) * NEDGES);
-//	unsigned *graph_degrees = (unsigned *) malloc(sizeof(unsigned) * NNODES);
-//	memset(graph_degrees, 0, sizeof(unsigned) * NNODES);
-//
-//	// Read degrees
-//	fname = prefix + "-nneibor";
-//	fin = fopen(fname.c_str(), "r");
-//	if (!fin) {
-//		fprintf(stderr, "cannot open file: %s\n", fname.c_str());
-//		exit(1);
-//	}
-//	for (unsigned i = 0; i < NNODES; ++i) {
-//		fscanf(fin, "%u", graph_degrees + i);
-//	}
-//	fclose(fin);
-//
-//	NUM_THREADS = 64;
-//	edge_bound = NEDGES / NUM_THREADS;
-//#pragma omp parallel num_threads(NUM_THREADS) private(fname, fin)
-//{
-//	unsigned tid = omp_get_thread_num();
-//	unsigned offset = tid * edge_bound;
-//	fname = prefix + "-" + to_string(tid);
-//	fin = fopen(fname.c_str(), "r");
-//	if (!fin) {
-//		fprintf(stderr, "Error: cannot open file %s\n", fname.c_str());
-//		exit(1);
-//	}
-//	if (0 == tid) {
-//		fscanf(fin, "%u %u", &NNODES, &NEDGES);
-//	}
-//	unsigned bound_index;
-//	if (NUM_THREADS - 1 != tid) {
-//		bound_index = offset + edge_bound;
-//	} else {
-//		bound_index = NEDGES;
-//	}
-//	for (unsigned index = offset; index < bound_index; ++index) {
-//		unsigned n1;
-//		unsigned n2;
-//		fscanf(fin, "%u %u", &n1, &n2);
-//		n1--;
-//		n2--;
-//		graph_edges[index] = n2;
-//	}
-//	fclose(fin);
-//
-//}
-//	// CSR
-//	//Vertex *graph_vertices_info = (Vertex *) malloc(sizeof(Vertex) * NNODES);
-//	unsigned *graph_vertices = (unsigned *) malloc(sizeof(unsigned) * NNODES);
-//	unsigned edge_start = 0;
-//	for (unsigned i = 0; i < NNODES; ++i) {
-//		graph_vertices[i] = edge_start;
-//		edge_start += graph_degrees[i];
-//		//graph_vertices_info[i].out_neighbors = graph_edges + edge_start;
-//		//graph_vertices_info[i].out_neighbors = graph_edges + edge_start;
-//		//graph_vertices_info[i].out_degree = graph_degrees[i];
-//	}
-//	//memcpy(graph_edges, graph_tails, sizeof(unsigned) * NEDGES);
-//	//free(graph_heads);
-//	//free(graph_tails);
-//	// End Input real dataset
-//	/////////////////////////////////////////////////////////////////////
-//
-//	int *h_graph_mask = (int*) malloc(sizeof(int)*NNODES);
-//	int *h_updating_graph_mask = (int*) malloc(sizeof(int)*NNODES);
-//	int *h_cost = (int*) malloc(sizeof(int)*NNODES);
-//	int *is_active_side = (int *) malloc(sizeof(int) * SIDE_LENGTH);
-//	int *is_updating_active_side = (int *) malloc(sizeof(int) * SIDE_LENGTH);
-//	unsigned *h_graph_parents = (unsigned *) malloc(sizeof(unsigned) * NNODES);
-//	unsigned source = 0;
-//
-//#ifdef ONEDEBUG
-//	printf("Input finished: %s\n", input_f);
-//	unsigned run_count = 9;
-//#else
-//	unsigned run_count = 9;
-//#endif
-//	// BFS
-//	T_RATIO = 100;
-//	CHUNK_SIZE = 2048;
-//	for (unsigned i = 6; i < run_count; ++i) {
-//		NUM_THREADS = (unsigned) pow(2, i);
-//#ifndef ONEDEBUG
-//		//sleep(10);
-//#endif
-//		// Re-initializing
-//		for (unsigned k = 0; k < 3; ++k) {
-//		memset(h_graph_mask, 0, sizeof(int)*NNODES);
-//		//h_graph_mask[source] = 1;
-//		memset(h_updating_graph_mask, 0, sizeof(int)*NNODES);
-//#pragma omp parallel for num_threads(64)
-//		for (unsigned j = 0; j < NNODES; ++j) {
-//			h_cost[j] = -1;
-//		}
-//		h_cost[source] = 0;
-//		memset(is_active_side, 0, sizeof(int) * SIDE_LENGTH);
-//		//is_active_side[0] = 1;
-//		memset(is_updating_active_side, 0, sizeof(int) * SIDE_LENGTH);
-//#pragma omp parallel for num_threads(64)
-//		for (unsigned j = 0; j < NNODES; ++j) {
-//			h_graph_parents[j] = (unsigned) -1; // means unvisited yet
-//		}
-//		h_graph_parents[source] = source;
-//
-//		graph_prepare(
-//				//unsigned *graph_vertices,
-//				//graph_vertices_info,
-//				graph_vertices,
-//				graph_edges,
-//				graph_heads,
-//				graph_tails, 
-//				graph_degrees,
-//				h_graph_parents, // h_graph_visited
-//				tile_offsets,
-//				source,
-//				h_graph_mask,
-//				h_updating_graph_mask,
-//				h_cost,
-//				is_empty_tile,
-//				is_active_side,
-//				is_updating_active_side);
-//	}
-//	}
-//	//}
-//
-//	//Store the result into a file
-//
-//#ifdef ONEDEBUG
-//	NUM_THREADS = 64;
-//	omp_set_num_threads(NUM_THREADS);
-//	unsigned num_lines = NNODES / NUM_THREADS;
-//#pragma omp parallel
-//{
-//	unsigned tid = omp_get_thread_num();
-//	unsigned offset = tid * num_lines;
-//	string file_prefix = "path/path";
-//	string file_name = file_prefix + to_string(tid) + ".txt";
-//	FILE *fpo = fopen(file_name.c_str(), "w");
-//	if (!fpo) {
-//		fprintf(stderr, "Error: cannot open file %s.\n", file_name.c_str());
-//		exit(1);
-//	}
-//	unsigned bound_index;
-//	if (tid != NUM_THREADS - 1) {
-//		bound_index = offset + num_lines;
-//	} else {
-//		bound_index = NNODES;
-//	}
-//	for (unsigned index = offset; index < bound_index; ++index) {
-//		fprintf(fpo, "%d) cost:%d\n", index, h_cost[index]);
-//	}
-//
-//	fclose(fpo);
-//}
-//#endif
-//
-//	// cleanup memory
-//	free( graph_heads);
-//	free( graph_tails);
-//	free( graph_edges);
-//	free( graph_degrees);
-//	free( graph_vertices);
-//	free( h_graph_mask);
-//	free( h_updating_graph_mask);
-//	free( h_graph_parents);
-//	free( h_cost);
-//	free( tile_offsets);
-//	free( is_empty_tile);
-//	free( is_active_side);
-//	free( is_updating_active_side);
-//}
 ///////////////////////////////////////////////////////////////////////////////
 // Main Program
 ///////////////////////////////////////////////////////////////////////////////
 int main( int argc, char** argv) 
 {
-	int max_count;
+	int num_sources;
+	int hops_max;
 	char *input_f;
 	unsigned degree_threshold;
 	unsigned num_hubs_max;
 	
-	if(argc > 5){
+	if(argc > 7){
 		input_f = argv[1];
 		TILE_WIDTH = strtoul(argv[2], NULL, 0);
 		ROW_STEP = strtoul(argv[3], NULL, 0);
-		degree_threshold = strtoul(argv[4], NULL, 0);
-		num_hubs_max = strtoul(argv[5], NULL, 0);
+		hops_max = strtoul(argv[4], NULL, 0);
+		num_sources = strtoul(argv[5], NULL, 0);
+		degree_threshold = strtoul(argv[6], NULL, 0);
+		num_hubs_max = strtoul(argv[7], NULL, 0);
 	} else {
-		puts("Usage: ./bfs <data> <tile_size> <stripe_length> <degree_threshold> <num_hubs_max>");
+		puts("Usage: ./bfs.out <data> <tile_size> <stripe_length> <hops> <num_sources> <degree_threshold> <num_hubs_max>");
 		exit(1);
 	}
 
@@ -1213,17 +977,18 @@ int main( int argc, char** argv)
 			num_hubs,
 			num_hubs_max);
 
-	bot_access_counter.init(NNODES);
 	NUM_THREADS = 64;
-	for (unsigned source = 0; source < NNODES; source += NNODES/max_count) {
+	unsigned hops;
+	for (unsigned source = 0; source < NNODES; source += NNODES/num_sources) {
 		//unsigned source = 0;
 		// BFS
 		//T_RATIO = 100;
 		T_RATIO = 20;
 		CHUNK_SIZE = 2048;
 		// Re-initializing
+		
 
-		graph_prepare(
+		unsigned hub_id = graph_prepare(
 				graph_vertices,
 				graph_edges,
 				graph_heads,
@@ -1231,10 +996,18 @@ int main( int argc, char** argv)
 				graph_degrees,
 				tile_offsets,
 				tile_sizes,
-				source);
-
+				source,
+				is_hub,
+				hops);
+		//printf("source: %u, hub: %u, hops: %u\n", source, hub_id, hops);
+		printf("source: %u, ", source);
+		if ((unsigned) -1 == hub_id) {
+			printf("hub: N/A, ");
+		} else {
+			printf("hub: %u, ", hub_id);
+		}
+		printf("hops: %u\n", hops);
 	}
-	bot_access_counter.print();
 	// cleanup memory
 	free( graph_heads);
 	free( graph_tails);

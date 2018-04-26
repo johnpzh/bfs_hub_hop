@@ -14,7 +14,7 @@ TARGET = peg_count.o bfs.out
 all: $(TARGET)
 
 peg_count.o: ../../include/peg_count.h
-	$(ICPC) $(CPPFLAGS) $^ -c $@
+	$(ICPC) $(CPPFLAGS) -c $^
 
 bfs.out: bfs.cpp peg_count.o
 	$(ICPC) $(CPPFLAGS) $^ -o $@ 
