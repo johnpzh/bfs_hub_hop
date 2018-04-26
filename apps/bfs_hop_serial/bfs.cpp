@@ -986,7 +986,6 @@ int main( int argc, char** argv)
 		T_RATIO = 20;
 		CHUNK_SIZE = 2048;
 		// Re-initializing
-		
 
 		unsigned hub_id = graph_prepare(
 				graph_vertices,
