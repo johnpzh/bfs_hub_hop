@@ -647,6 +647,13 @@ unsigned graph_prepare(
 								frontier_size,
 								is_hub);
 	if (hub_id != (unsigned) -1) {
+		free(frontier);
+		free( h_graph_mask);
+		free( h_updating_graph_mask);
+		free( h_graph_parents);
+		free( h_cost);
+		free( is_active_side);
+		free( is_updating_active_side);
 		return hub_id;
 	}
 	//printf("%d %lf\n", CHUNK_SIZE, run_time = (end_time - start_time));
@@ -691,6 +698,13 @@ unsigned graph_prepare(
 								is_updating_active_side,
 								is_hub);
 			if (hub_id != (unsigned) -1) {
+				free(frontier);
+				free( h_graph_mask);
+				free( h_updating_graph_mask);
+				free( h_graph_parents);
+				free( h_cost);
+				free( is_active_side);
+				free( is_updating_active_side);
 				return hub_id;
 			}
 			// Update the parents, and get the out_degree again
@@ -730,6 +744,13 @@ unsigned graph_prepare(
 									frontier_size,
 									is_hub);
 			if (hub_id != (unsigned) -1) {
+				free(frontier);
+				free( h_graph_mask);
+				free( h_updating_graph_mask);
+				free( h_graph_parents);
+				free( h_cost);
+				free( is_active_side);
+				free( is_updating_active_side);
 				return hub_id;
 			}
 			last_is_dense = false;
@@ -999,11 +1020,11 @@ int main( int argc, char** argv)
 				is_hub,
 				hops);
 		//printf("source: %u, hub: %u, hops: %u\n", source, hub_id, hops);
-		printf("source: %u, ", source);
+		printf("source: %u ", source);
 		if ((unsigned) -1 == hub_id) {
 			printf("hub: N/A, ");
 		} else {
-			printf("hub: %u, ", hub_id);
+			printf("hub: %u ", hub_id);
 		}
 		printf("hops: %u\n", hops);
 	}
