@@ -573,6 +573,8 @@ void graph_prepare(
 		const unsigned &source,
 		int max_hop)
 {
+	printf("source: %u", source);
+
 	//int max_hop = 3;
 	int hop = 0;
 
@@ -631,6 +633,7 @@ void graph_prepare(
 	//unsigned bfs_threshold = NEDGES / 20; // Determined according to Ligra
 	unsigned bfs_threshold = NEDGES / T_RATIO; // Determined according to Ligra
 	while (hop < max_hop) {
+		++hop;
 		if (frontier_size + out_degree > bfs_threshold) {
 			if (!last_is_dense) {
 				to_dense(
@@ -697,8 +700,12 @@ void graph_prepare(
 								h_graph_parents,
 								h_cost);
 		}
-		++hop;
 	}
+	while (hop < max_hop) {
+		++hop;
+		printf(" 0");
+	}
+	printf("\n");
 	double end_time = omp_get_wtime();
 	fprintf(stderr, "%d %lf\n", NUM_THREADS, run_time = (end_time - start_time));
 	free(frontier);
@@ -912,7 +919,6 @@ int main( int argc, char** argv)
 		CHUNK_SIZE = 2048;
 		// Re-initializing
 
-		printf("source: %u", source);
 		graph_prepare(
 				graph_vertices,
 				graph_edges,
@@ -923,7 +929,6 @@ int main( int argc, char** argv)
 				tile_sizes,
 				source,
 				max_hop);
-		puts("");
 
 	}
 	// cleanup memory
