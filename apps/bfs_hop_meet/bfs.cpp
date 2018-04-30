@@ -897,13 +897,14 @@ void graph_input(
 	fclose(fin);
 	// Set is_hub
 	for (auto el : degree_to_id) {
-		if (el.first < degree_threshold || num_hubs > num_hubs_max) {
+		if (el.first < degree_threshold || num_hubs >= num_hubs_max) {
 			break;
 		}
 		unsigned vertex_id = el.second;
 		is_hub[vertex_id] = 1;
 		++num_hubs;
 	}
+	printf("num_hubs: %u\n", num_hubs);
 
 	NUM_THREADS = 64;
 	edge_bound = NEDGES / NUM_THREADS;
