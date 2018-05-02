@@ -1,0 +1,1 @@
+Select 1K/10K vertices as sources and do BFS, record the total access frequency of every vertex in the graph.

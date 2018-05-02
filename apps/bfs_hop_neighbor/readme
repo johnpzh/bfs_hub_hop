@@ -1,0 +1,1 @@
+Select 10K vertices as sources and do 4-hop BFS from them. For every source, record how many vertices are there in every hop (frontier).

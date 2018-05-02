@@ -1,0 +1,3 @@
+Select 10k vertices as sources and do BFS from them, and record the number of visited vertice for 2 cases:
+1. arrive at any hub;
+2. continue visiting the hub and its neighbor by one more step (hop).

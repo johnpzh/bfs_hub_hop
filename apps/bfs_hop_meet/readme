@@ -1,0 +1,1 @@
+Select 10k vertices as sources and do BFS from them. For every source, when the BFS meet a hub then it stops. So it records how many hops between a source and its closest hub.
