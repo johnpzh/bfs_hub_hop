@@ -37,7 +37,16 @@ void input_weighted(
 		unsigned *&graph_vertices,
 		unsigned *&graph_edges,
 		unsigned *&graph_weights_csr,
-		unsigned *&graph_degrees)
+		unsigned *&graph_degrees,
+		unsigned *&graph_heads_reverse, 
+		unsigned *&graph_tails_reverse, 
+		unsigned *&graph_weights_reverse,
+		unsigned *&tile_offsets_reverse,
+		unsigned *&tile_sizes_reverse, 
+		unsigned *&graph_vertices_reverse,
+		unsigned *&graph_edges_reverse,
+		unsigned *&graph_weights_csr_reverse,
+		unsigned *&graph_degrees_reverse)
 {
 	//string prefix = string(filename) + "_untiled";
 	string prefix = string(filename) + "_col-" + to_string(ROW_STEP) + "-coo-tiled-" + to_string(TILE_WIDTH);
@@ -76,6 +85,27 @@ void input_weighted(
 			tile_sizes[i] = NEDGES - tile_offsets[i];
 		}
 	}
+	// Reverse
+	string prefix_reverse = string(filename) + "_col-" + to_string(ROW_STEP) + "-coo-tiled-" + to_string(TILE_WIDTH) + "_reverse";
+	fname = prefix_reverse + "-offsets";
+	fin = fopen(fname.c_str(), "r");
+	if (!fin) {
+		fprintf(stderr, "cannot open file: %s\n", fname.c_str());
+		exit(1);
+	}
+	tile_offsets_reverse = (unsigned *) malloc(NUM_TILES * sizeof(unsigned));
+	for (unsigned i = 0; i < NUM_TILES; ++i) {
+		fscanf(fin, "%u", tile_offsets_reverse + i);
+	}
+	fclose(fin);
+	tile_sizes_reverse = (unsigned *) malloc(NUM_TILES * sizeof(unsigned));
+	for (unsigned i = 0; i < NUM_TILES; ++i) {
+		if (NUM_TILES - 1 != i) {
+			tile_sizes_reverse[i] = tile_offsets_reverse[i + 1] - tile_offsets_reverse[i];
+		} else {
+			tile_sizes_reverse[i] = NEDGES - tile_offsets_reverse[i];
+		}
+	}
 
 	graph_heads = (unsigned *) malloc(NEDGES * sizeof(unsigned));
 	graph_tails = (unsigned *) malloc(NEDGES * sizeof(unsigned));
@@ -84,7 +114,14 @@ void input_weighted(
 	graph_edges = (unsigned *) malloc(NEDGES * sizeof(unsigned));
 	graph_weights_csr = (unsigned *) malloc(NEDGES * sizeof(unsigned));
 	graph_degrees = (unsigned *) malloc(NNODES * sizeof(unsigned));
+	//Reverse
+	graph_heads_reverse = (unsigned *) malloc(NEDGES * sizeof(unsigned));
+	graph_tails_reverse = (unsigned *) malloc(NEDGES * sizeof(unsigned));
+	graph_vertices_reverse = (unsigned *) malloc(NNODES * sizeof(unsigned));
+	graph_edges_reverse = (unsigned *) malloc(NEDGES * sizeof(unsigned));
+	graph_degrees_reverse = (unsigned *) malloc(NNODES * sizeof(unsigned));
 
+	// For heads and tails
 	NUM_THREADS = 64;
 	unsigned edge_bound = NEDGES / NUM_THREADS;
 #pragma omp parallel num_threads(NUM_THREADS) private(fname, fin)
@@ -119,6 +156,38 @@ void input_weighted(
 	}
 	fclose(fin);
 }
+//Reverse
+#pragma omp parallel num_threads(NUM_THREADS) private(fname, fin)
+{
+	unsigned tid = omp_get_thread_num();
+	unsigned offset = tid * edge_bound;
+	fname = prefix_reverse + "-" + to_string(tid);
+	fin = fopen(fname.c_str(), "r");
+	if (!fin) {
+		fprintf(stderr, "Error: cannot open file %s\n", fname.c_str());
+		exit(1);
+	}
+	if (0 == tid) {
+		fscanf(fin, "%u%u", &NNODES, &NEDGES);
+	}
+	unsigned bound_index;
+	if (NUM_THREADS - 1 != tid) {
+		bound_index = offset + edge_bound;
+	} else {
+		bound_index = NEDGES;
+	}
+	for (unsigned index = offset; index < bound_index; ++index) {
+		unsigned n1;
+		unsigned wt;
+		fscanf(fin, "%u%u%u", &n1, &n2, &wt);
+		n1--;
+		n2--;
+		graph_heads_reverse[index] = n1;
+		graph_tails_reverse[index] = n2;
+		graph_weights_reverse[index] = wt;
+	}
+	fclose(fin);
+}
 	//For graph CSR
 	prefix = string(filename) + "_untiled";
 
@@ -133,7 +202,20 @@ void input_weighted(
 		fscanf(fin, "%u", graph_degrees + i);
 	}
 	fclose(fin);
+	//Reverse
+	prefix_reverse = string(filename) + "_untiled_reverse";
+	fname = prefix_reverse + "-nneibor";
+	fin = fopen(fname.c_str(), "r");
+	if (!fin) {
+		fprintf(stderr, "cannot open file: %s\n", fname.c_str());
+		exit(1);
+	}
+	for (unsigned i = 0; i < NNODES; ++i) {
+		fscanf(fin, "%u", graph_degrees_reverse + i);
+	}
+	fclose(fin);
 
+	// Read untiled for CSR
 	NUM_THREADS = 64;
 	edge_bound = NEDGES / NUM_THREADS;
 #pragma omp parallel num_threads(NUM_THREADS) private(fname, fin)
@@ -167,11 +249,49 @@ void input_weighted(
 	}
 	fclose(fin);
 }
+//Reverse
+#pragma omp parallel num_threads(NUM_THREADS) private(fname, fin)
+{
+	unsigned tid = omp_get_thread_num();
+	unsigned offset = tid * edge_bound;
+	fname = prefix_reverse + "-" + to_string(tid);
+	fin = fopen(fname.c_str(), "r");
+	if (!fin) {
+		fprintf(stderr, "Error: cannot open file %s\n", fname.c_str());
+		exit(1);
+	}
+	if (0 == tid) {
+		fscanf(fin, "%u %u", &NNODES, &NEDGES);
+	}
+	unsigned bound_index;
+	if (NUM_THREADS - 1 != tid) {
+		bound_index = offset + edge_bound;
+	} else {
+		bound_index = NEDGES;
+	}
+	for (unsigned index = offset; index < bound_index; ++index) {
+		unsigned n1;
+		unsigned n2;
+		unsigned wt;
+		fscanf(fin, "%u%u%u", &n1, &n2, &wt);
+		n1--;
+		n2--;
+		graph_edges_reverse[index] = n2;
+		graph_weights_csr_reverse[index] = wt;
+	}
+	fclose(fin);
+}
 	// CSR
 	unsigned edge_start = 0;
 	for (unsigned i = 0; i < NNODES; ++i) {
 		graph_vertices[i] = edge_start;
 		edge_start += graph_degrees[i];
+	}
+	//Reverse
+	edge_start = 0;
+	for (unsigned i = 0; i < NNODES; ++i) {
+		graph_vertices_reverse[i] = edge_start;
+		edge_start += graph_degrees_reverse[i];
 	}
 }
 
@@ -715,22 +835,27 @@ inline unsigned *BFS_sparse_weighted(
 // End Sparse, Weighted Graph
 ////////////////////////////////////////////////////////////
 
-void sssp_weighted(
+void bidirectional_sssp_weighted(
 		unsigned *graph_heads, 
 		unsigned *graph_tails, 
 		unsigned *graph_weights,
 		unsigned *tile_offsets,
-		//int *graph_active, 
-		//int *graph_updating_active,
-		//int *is_active_side,
-		//int *is_updating_active_side,
 		unsigned *tile_sizes,
-		//int *dists,
 		unsigned *graph_vertices,
 		unsigned *graph_edges,
 		unsigned *graph_weights_csr,
 		unsigned *graph_degrees,
-		const unsigned &source)
+		const unsigned &source,
+		unsigned *graph_heads_reverse, 
+		unsigned *graph_tails_reverse, 
+		unsigned *graph_weights_reverse,
+		unsigned *tile_offsets_reverse,
+		unsigned *tile_sizes_reverse,
+		unsigned *graph_vertices_reverse,
+		unsigned *graph_edges_reverse,
+		unsigned *graph_weights_csr_reverse,
+		unsigned *graph_degrees_reverse,
+		const unsigned &destination)
 {
 	omp_set_num_threads(NUM_THREADS);
 
@@ -1193,15 +1318,18 @@ int main(int argc, char *argv[])
 {
 	int is_weighted_graph = 0;
 	// Process the options
+	unsigned source;
+	unsigned destination;
 	char *filename;
-	if (argc > 3) {
+	if (argc > 5) {
 		filename = argv[1];
 		TILE_WIDTH = strtoul(argv[2], NULL, 0);
 		ROW_STEP = strtoul(argv[3], NULL, 0);
+		source = strtoul(argv[4], NULL, 0);
+		destination = strtoul(argv[5], NULL, 0);
 	} else {
-		filename = "/home/zpeng/benchmarks/data/pokec/coo_tiled_bak/soc-pokec";
-		TILE_WIDTH = 1024;
-		ROW_STEP = 16;
+		puts("Usage: ./sssp <data> <tile_width> <stripe_length> <source> <destination> [-w] [--weighted]");
+		exit(1);
 	}
 
 	int arg_flag;
@@ -1239,6 +1367,18 @@ int main(int argc, char *argv[])
 	unsigned *graph_edges = nullptr;
 	unsigned *graph_weights_csr = nullptr;
 	unsigned *graph_degrees = nullptr;
+	//Reverse
+	unsigned *graph_heads_reverse;
+	unsigned *graph_tails_reverse;
+	unsigned *graph_weights_reverse = nullptr;
+	unsigned *tile_offsets_reverse;
+	unsigned *tile_sizes_reverse;
+
+	unsigned *graph_vertices_reverse = nullptr;
+	unsigned *graph_edges_reverse = nullptr;
+	unsigned *graph_weights_csr_reverse = nullptr;
+	unsigned *graph_degrees_reverse = nullptr;
+
 	//unsigned *nneibor;
 	if (is_weighted_graph) {
 		input_weighted(
@@ -1251,7 +1391,16 @@ int main(int argc, char *argv[])
 				graph_vertices,
 				graph_edges,
 				graph_weights_csr,
-				graph_degrees);
+				graph_degrees,
+				graph_heads_reverse, 
+				graph_tails_reverse, 
+				graph_weights_reverse,
+				tile_offsets_reverse,
+				tile_sizes_reverse,
+				graph_vertices_reverse,
+				graph_edges_reverse,
+				graph_weights_csr_reverse,
+				graph_degrees_reverse);
 	} else {
 		input(
 				filename, 
@@ -1262,12 +1411,7 @@ int main(int argc, char *argv[])
 	}
 
 	// SSSP
-	//int *distances = (int *) malloc(NNODES * sizeof(int));
-	//int *graph_active = (int *) malloc(NNODES * sizeof(int));
-	//int *graph_updating_active = (int *) malloc(NNODES * sizeof(int));
-	//int *is_active_side = (int *) malloc(sizeof(int) * SIDE_LENGTH);
-	//int *is_updating_active_side = (int *) malloc(sizeof(int) * SIDE_LENGTH);
-	unsigned source = 0;
+	//unsigned source = 0;
 	
 #ifdef ONEDEBUG
 	printf("SSSP starts...\n");
@@ -1279,34 +1423,29 @@ int main(int argc, char *argv[])
 	WORK_LOAD = 30;
 	for (unsigned i = 6; i < run_count; ++i) {
 		NUM_THREADS = (unsigned) pow(2, i);
-		//memset(distances, -1, NNODES * sizeof(int));
-		//distances[source] = 0;
-		//memset(graph_active, 0, NNODES * sizeof(int));
-		//graph_active[source] = 1;
-		//memset(graph_updating_active, 0, NNODES * sizeof(int));
-		//memset(is_active_side, 0, sizeof(int) * SIDE_LENGTH);
-		//is_active_side[source/TILE_WIDTH] = 1;
-		//memset(is_updating_active_side, 0, sizeof(int) * SIDE_LENGTH);
-
-		//sleep(10);
 		for (int k = 0; k < 1; ++k) {
 		if (is_weighted_graph) {
-			sssp_weighted(
+			bidirectional_sssp_weighted(
 				graph_heads, 
 				graph_tails, 
 				graph_weights,
 				tile_offsets,
-				//graph_active, 
-				//graph_updating_active,
-				//is_active_side,
-				//is_updating_active_side,
 				tile_sizes,
-				//distances,
 				graph_vertices,
 				graph_edges,
 				graph_weights_csr,
 				graph_degrees,
-				source);
+				source,
+				graph_heads_reverse, 
+				graph_tails_reverse, 
+				graph_weights_reverse,
+				tile_offsets_reverse,
+				tile_sizes_reverse,
+				graph_vertices_reverse,
+				graph_edges_reverse,
+				graph_weights_csr_reverse,
+				graph_degrees_reverse,
+				destination);
 		} else {
 			sssp(
 				graph_heads, 
@@ -1323,18 +1462,22 @@ int main(int argc, char *argv[])
 		}
 	}
 
-	fclose(time_out);
 
 	// Free memory
 	free(graph_heads);
 	free(graph_tails);
-	if (nullptr != graph_weights) {
-		free(graph_weights);
-		free(graph_vertices);
-		free(graph_edges);
-		free(graph_weights_csr);
-		free(graph_degrees);
-	}
+	//if (nullptr != graph_weights) {
+	//	free(graph_weights);
+	//	free(graph_vertices);
+	//	free(graph_edges);
+	//	free(graph_weights_csr);
+	//	free(graph_degrees);
+	//}
+	free(graph_weights);
+	free(graph_vertices);
+	free(graph_edges);
+	free(graph_weights_csr);
+	free(graph_degrees);
 	free(tile_offsets);
 	free(tile_sizes);
 	//free(distances);
@@ -1342,6 +1485,15 @@ int main(int argc, char *argv[])
 	//free(graph_updating_active);
 	//free(is_active_side);
 	//free(is_updating_active_side);
+	free(graph_heads_reverse);
+	free(graph_tails_reverse);
+	free(graph_weights_reverse);
+	free(graph_vertices_reverse);
+	free(graph_edges_reverse);
+	free(graph_weights_csr_reverse);
+	free(graph_degrees_reverse);
+	free(tile_offsets_reverse);
+	free(tile_sizes_reverse);
 
 	return 0;
 }
