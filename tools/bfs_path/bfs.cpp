@@ -7,12 +7,14 @@
 #include <map>
 #include <functional>
 #include <unistd.h>
+#include <vector>
 
 using std::string;
 using std::to_string;
 using std::multimap;
 using std::greater;
 using std::pair;
+using std::vector;
 
 struct Vertex {
 	unsigned *out_neighbors;
@@ -284,7 +286,6 @@ void BFS_dense(
 //
 //	return (unsigned) -1;
 //}
-
 unsigned *to_sparse(
 		unsigned *frontier,
 		const unsigned &frontier_size,
@@ -774,6 +775,7 @@ void bfs_one_hop(
 		unsigned *tile_sizes)
 {
 	if (frontier_size + out_degree > bfs_threshold) {
+		// Dense
 		if (!last_is_dense) {
 			to_dense(
 					h_graph_mask, 
@@ -834,6 +836,26 @@ void bfs_one_hop(
 	}
 }
 
+void print_path(
+		const unsigned &source,
+		const unsigned &destination,
+		unsigned *h_graph_parents) 
+{
+	vector<unsigned> path;
+	unsigned vertex_id = destination;
+	path.push_back(vertex_id);
+	while (h_graph_parents[vertex_id] != vertex_id) {
+		vertex_id = h_graph_parents[vertex_id];
+		path.push_back(vertex_id);
+	}
+	
+	printf("source: %u destination: %u\n", source, destination);
+	printf("path:");
+	for (auto v = path.rbegin(); v != path.rend(); ++v) {
+		printf(" %u", *v);
+	}
+	printf("\n");
+}
 void onedirectional_bfs(
 		unsigned *graph_vertices,
 		unsigned *graph_edges,
@@ -931,6 +953,13 @@ void onedirectional_bfs(
 		if (f_frontier_size == 0) {
 			break;
 		}
+		if ((unsigned) -1 != f_h_graph_parents[destination]) {
+			print_path(
+					source,
+					destination,
+					f_h_graph_parents);
+			break;
+		}
 	}
 
 #ifdef ONEDEBUG
@@ -1002,8 +1031,8 @@ void graph_input(
 	/////////////////////////////////////////////////////////////////////
 	//string prefix = string(input_f) + "_untiled";
 	//string prefix = string(input_f) + "_coo-tiled-" + to_string(TILE_WIDTH);
-	string prefix = string(input_f) + "_col-" + to_string(ROW_STEP) + "-coo-tiled-" + to_string(TILE_WIDTH);
-	string prefix_reverse = string(input_f) + "_col-" + to_string(ROW_STEP) + "-coo-tiled-" + to_string(TILE_WIDTH) + "_reverse";
+	string prefix = string(input_f) + "_col-" + to_string(ROW_STEP) + "-coo-tiled-" + to_string(TILE_WIDTH) + "_reverse";
+	//string prefix = string(input_f) + "_col-" + to_string(ROW_STEP) + "-coo-tiled-" + to_string(TILE_WIDTH);
 	//string prefix = string(input_f) + "_col-2-coo-tiled-" + to_string(TILE_WIDTH);
 	string fname = prefix + "-0";
 	FILE *fin = fopen(fname.c_str(), "r");
@@ -1085,7 +1114,8 @@ void graph_input(
 }
 
 	// For Sparse
-	prefix = string(input_f) + "_untiled";
+	//prefix = string(input_f) + "_untiled";
+	prefix = string(input_f) + "_untiled" + "_reverse";
 	num_hubs = 0;
 	//multimap<unsigned, unsigned, greater<unsigned> > degree_to_id;
 	using pair_type = pair<unsigned, unsigned>;
