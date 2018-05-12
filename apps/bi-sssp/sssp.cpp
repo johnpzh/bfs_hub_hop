@@ -50,6 +50,7 @@ void input_weighted(
 {
 	//string prefix = string(filename) + "_untiled";
 	string prefix = string(filename) + "_col-" + to_string(ROW_STEP) + "-coo-tiled-" + to_string(TILE_WIDTH);
+	string prefix_reverse = string(filename) + "_col-" + to_string(ROW_STEP) + "-coo-tiled-" + to_string(TILE_WIDTH) + "_reverse";
 	//string prefix = string(filename) + "_coo-tiled-" + to_string(TILE_WIDTH);
 	string fname = prefix + "-0";
 	FILE *fin = fopen(fname.c_str(), "r");
@@ -86,7 +87,6 @@ void input_weighted(
 		}
 	}
 	// Reverse
-	string prefix_reverse = string(filename) + "_col-" + to_string(ROW_STEP) + "-coo-tiled-" + to_string(TILE_WIDTH) + "_reverse";
 	fname = prefix_reverse + "-offsets";
 	fin = fopen(fname.c_str(), "r");
 	if (!fin) {
@@ -178,6 +178,7 @@ void input_weighted(
 	}
 	for (unsigned index = offset; index < bound_index; ++index) {
 		unsigned n1;
+		unsigned n2;
 		unsigned wt;
 		fscanf(fin, "%u%u%u", &n1, &n2, &wt);
 		n1--;
@@ -190,6 +191,7 @@ void input_weighted(
 }
 	//For graph CSR
 	prefix = string(filename) + "_untiled";
+	prefix_reverse = string(filename) + "_untiled_reverse";
 
 	// Read degrees
 	fname = prefix + "-nneibor";
@@ -203,7 +205,6 @@ void input_weighted(
 	}
 	fclose(fin);
 	//Reverse
-	prefix_reverse = string(filename) + "_untiled_reverse";
 	fname = prefix_reverse + "-nneibor";
 	fin = fopen(fname.c_str(), "r");
 	if (!fin) {
@@ -835,6 +836,89 @@ inline unsigned *BFS_sparse_weighted(
 // End Sparse, Weighted Graph
 ////////////////////////////////////////////////////////////
 
+void expand_one_step(
+		int *h_graph_mask,
+		int *h_updating_graph_mask,
+		int *is_active_side,
+		int *is_updating_active_side,
+		unsigned *h_graph_queue,
+		unsigned &frontier_size,
+		unsigned &out_degree,
+		const unsigned &pattern_threshold,
+		bool &last_is_dense,
+		//unsigned *h_graph_parents,
+		unsigned *dists,
+		unsigned *graph_heads, 
+		unsigned *graph_tails, 
+		unsigned *graph_weights,
+		unsigned *tile_offsets,
+		unsigned *tile_sizes,
+		unsigned *graph_vertices,
+		unsigned *graph_edges,
+		unsigned *graph_weights_csr,
+		unsigned *graph_degrees)
+{
+	if (frontier_size + out_degree > pattern_threshold) {
+		// Dense
+		if (!last_is_dense) {
+			to_dense(
+					h_graph_queue,
+					frontier_size,
+					h_graph_mask,
+					is_active_side);
+		}
+		BFS_dense_weighted(
+				graph_heads,
+				graph_tails,
+				graph_weights,
+				tile_offsets,
+				tile_sizes,
+				h_graph_mask,
+				h_updating_graph_mask,
+				is_active_side,
+				is_updating_active_side,
+				dists);
+		last_is_dense = true;
+		update_dense_weighted(
+				frontier_size,
+				out_degree,
+				h_graph_mask,
+				h_updating_graph_mask,
+				is_active_side,
+				is_updating_active_side,
+				graph_degrees);
+	} else {
+		// Sparse
+		unsigned *new_queue;
+		if (last_is_dense) {
+			new_queue = to_sparse(
+					h_graph_mask,
+					frontier_size);
+			free(h_graph_queue);
+			h_graph_queue = new_queue;
+		}
+		new_queue = BFS_sparse_weighted(
+				h_graph_queue,
+				frontier_size,
+				graph_vertices,
+				graph_edges,
+				graph_degrees,
+				graph_weights_csr,
+				//h_graph_visited,
+				//num_paths
+				h_updating_graph_mask,
+				dists);
+		free(h_graph_queue);
+		h_graph_queue = new_queue;
+		last_is_dense = false;
+		out_degree =  sparse_update_weighted(
+				h_graph_queue,
+				frontier_size,
+				graph_degrees,
+				h_updating_graph_mask);
+	}
+}
+
 void bidirectional_sssp_weighted(
 		unsigned *graph_heads, 
 		unsigned *graph_tails, 
@@ -859,7 +943,6 @@ void bidirectional_sssp_weighted(
 {
 	omp_set_num_threads(NUM_THREADS);
 
-	unsigned *dists = (unsigned *) malloc(NNODES * sizeof(int));
 	//int *graph_active = (int *) malloc(NNODES * sizeof(int));
 	//int *graph_updating_active = (int *) malloc(NNODES * sizeof(int));
 	int *h_graph_mask = (int *) malloc(NNODES * sizeof(int));
@@ -870,7 +953,9 @@ void bidirectional_sssp_weighted(
 	unsigned *h_graph_queue = nullptr;
 	unsigned frontier_size;
 	unsigned out_degree;
-	bool last_is_dense;
+	bool last_is_dense = false;
+	unsigned *new_queue = nullptr;
+	unsigned *dists = (unsigned *) malloc(NNODES * sizeof(int));
 
 	memset(dists, -1, NNODES * sizeof(int));
 	dists[source] = 0;
@@ -881,158 +966,56 @@ void bidirectional_sssp_weighted(
 	frontier_size = 1;
 	h_graph_queue = (unsigned *) malloc(frontier_size *sizeof(unsigned));
 	h_graph_queue[0] = source;
-	unsigned *new_queue = BFS_sparse_weighted(
-								h_graph_queue,
-								frontier_size,
-								graph_vertices,
-								graph_edges,
-								graph_degrees,
-								graph_weights_csr,
-								//h_graph_visited,
-								h_updating_graph_mask,
-								//num_paths
-								dists);
-	free(h_graph_queue);
-	h_graph_queue = new_queue;
-	last_is_dense = false;
-	// Get the sum of the number of active nodes and their out degrees
-	out_degree =  sparse_update_weighted(
-							h_graph_queue,
-							frontier_size,
-							graph_degrees,
-							h_updating_graph_mask);
+	out_degree = graph_degrees[source];
+	//unsigned *new_queue = BFS_sparse_weighted(
+	//							h_graph_queue,
+	//							frontier_size,
+	//							graph_vertices,
+	//							graph_edges,
+	//							graph_degrees,
+	//							graph_weights_csr,
+	//							//h_graph_visited,
+	//							h_updating_graph_mask,
+	//							//num_paths
+	//							dists);
+	//free(h_graph_queue);
+	//h_graph_queue = new_queue;
+	//last_is_dense = false;
+	//// Get the sum of the number of active nodes and their out degrees
+	//out_degree =  sparse_update_weighted(
+	//						h_graph_queue,
+	//						frontier_size,
+	//						graph_degrees,
+	//						h_updating_graph_mask);
 
 	unsigned pattern_threshold = NEDGES / T_RATIO;
 
 	while (true) {
-		if (frontier_size + out_degree > pattern_threshold) {
-			// Dense
-			if (!last_is_dense) {
-				to_dense(
-					h_graph_queue,
-					frontier_size,
-					h_graph_mask,
-					is_active_side);
-			}
-			BFS_dense_weighted(
-					graph_heads,
-					graph_tails,
-					graph_weights,
-					tile_offsets,
-					tile_sizes,
-					h_graph_mask,
-					h_updating_graph_mask,
-					is_active_side,
-					is_updating_active_side,
-					dists);
-			last_is_dense = true;
-		} else {
-			// Sparse
-			if (last_is_dense) {
-				new_queue = to_sparse(
-							h_graph_mask,
-							frontier_size);
-				free(h_graph_queue);
-				h_graph_queue = new_queue;
-			}
-			new_queue = BFS_sparse_weighted(
-									h_graph_queue,
-									frontier_size,
-									graph_vertices,
-									graph_edges,
-									graph_degrees,
-									graph_weights_csr,
-									//h_graph_visited,
-									//num_paths
-									h_updating_graph_mask,
-									dists);
-			free(h_graph_queue);
-			h_graph_queue = new_queue;
-			last_is_dense = false;
+		// FORWARD
+		expand_one_step(
+				h_graph_mask,
+				h_updating_graph_mask,
+				is_active_side,
+				is_updating_active_side,
+				h_graph_queue,
+				frontier_size,
+				out_degree,
+				pattern_threshold,
+				last_is_dense,
+				//h_graph_parents,
+				dists,
+				graph_heads, 
+				graph_tails, 
+				graph_weights,
+				tile_offsets,
+				tile_sizes,
+				graph_vertices,
+				graph_edges,
+				graph_weights_csr,
+				graph_degrees);
+		if (0 == frontier_size) {
+			break;
 		}
-		if (last_is_dense) {
-			update_dense_weighted(
-					frontier_size,
-					out_degree,
-					h_graph_mask,
-					h_updating_graph_mask,
-					is_active_side,
-					is_updating_active_side,
-					graph_degrees);
-			if (0 == frontier_size) {
-				break;
-			}
-		} else {
-			if (0 == frontier_size) {
-				break;
-			}
-			out_degree =  sparse_update_weighted(
-					h_graph_queue,
-					frontier_size,
-					graph_degrees,
-					h_updating_graph_mask);
-		}
-		///////////////////////////////////////
-		//unsigned remainder = SIDE_LENGTH % ROW_STEP;
-		//unsigned bound_side_id = SIDE_LENGTH - remainder;
-		//for (unsigned side_id = 0; side_id < bound_side_id; side_id += ROW_STEP) {
-		//	//if (!is_active_side[side_id]) {
-		//	//	++side_id;
-		//	//	continue;
-		//	//}
-		//	scheduler_weighted(
-		//		graph_heads, 
-		//		graph_tails, 
-		//		graph_weights,
-		//		tile_offsets,
-		//		graph_active, 
-		//		graph_updating_active,
-		//		is_active_side,
-		//		is_updating_active_side,
-		//		is_empty_tile,
-		//		dists, 
-		//		side_id,
-		//		ROW_STEP);
-		//	//side_id += ROW_STEP;
-		//}
-		//if (remainder > 0) {
-		//	scheduler_weighted(
-		//			graph_heads, 
-		//			graph_tails, 
-		//			graph_weights,
-		//			tile_offsets,
-		//			graph_active, 
-		//			graph_updating_active,
-		//			is_active_side,
-		//			is_updating_active_side,
-		//			is_empty_tile,
-		//			dists, 
-		//			bound_side_id,
-		//			remainder);
-		//}
-//#pragma omp parallel for
-//		for (unsigned side_id = 0; side_id < SIDE_LENGTH; ++side_id) {
-//			if (!is_updating_active_side[side_id]) {
-//				is_active_side[side_id] = 0;
-//				continue;
-//			}
-//			is_updating_active_side[side_id] = 0;
-//			is_active_side[side_id] = 1;
-//			unsigned bound_vertex_id;
-//			if (SIDE_LENGTH - 1 != side_id) {
-//				bound_vertex_id = side_id * TILE_WIDTH + TILE_WIDTH;
-//			} else {
-//				bound_vertex_id = NNODES;
-//			}
-//			for (unsigned vertex_id = side_id * TILE_WIDTH; vertex_id < bound_vertex_id; ++vertex_id) {
-//				if (1 == graph_updating_active[vertex_id]) {
-//					graph_updating_active[vertex_id] = 0;
-//					graph_active[vertex_id] = 1;
-//				} else {
-//					graph_active[vertex_id] = 0;
-//				}
-//			}
-//		}
 	}
 
 	double end_time = omp_get_wtime();
