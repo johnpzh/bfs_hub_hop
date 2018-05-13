@@ -1,0 +1,8 @@
+• for both 3-hop and 4-hop:
+• for each source node i:
+	○ 1. Yi: when you meet any hub node, do not expand it and continue to traverse other non-hub nodes; Yi is the total number of nodes that you visit. 
+	○ 2. Xi: the normal traversal. whenever you meet any hub or non-hub, visit them. Xi is the total number of nodes that you visit.
+• plot: Yi/Xi for each source node i;
+• calculate: the overall sum(Yi)/sum(Xi) for all 10K source nodes.
+• This study will give us an upper-bound of our optimization benefits. Please stop by my office if there is any question.
+
