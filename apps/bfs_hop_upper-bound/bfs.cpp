@@ -832,7 +832,8 @@ unsigned graph_prepare(
 	last_is_dense = false;
 
 	while (hops < hops_max) {
-		if (frontier_size + out_degree > bfs_threshold) {
+		//if (frontier_size + out_degree > bfs_threshold) {
+			// Dense
 			if (!last_is_dense) {
 				to_dense(
 					h_graph_mask, 
@@ -871,43 +872,43 @@ unsigned graph_prepare(
 			if (0 == frontier_size) {
 				break;
 			}
-		} else {
-			// Sparse
-			if (last_is_dense) {
-				new_frontier = to_sparse(
-					frontier,
-					frontier_size,
-					h_graph_mask);
-				free(frontier);
-				frontier = new_frontier;
-			}
-			new_frontier = BFS_sparse(
-								frontier,
-								graph_vertices,
-								graph_edges,
-								graph_degrees,
-								h_graph_parents,
-								frontier_size);
-			free(frontier);
-			frontier = new_frontier;
-			++hops;
-			last_is_dense = false;
-			// Update the parents, and get the out_degree again
-			yi += frontier_size;
-			mark_off_hubs_sparse(
-							frontier,
-							frontier_size,
-							is_hub);
-			if (0 == frontier_size) {
-				break;
-			}
-			out_degree = update_sparse(
-								frontier,
-								frontier_size,
-								graph_degrees,
-								h_graph_parents,
-								h_cost);
-		}
+		//} else {
+		//	// Sparse
+		//	if (last_is_dense) {
+		//		new_frontier = to_sparse(
+		//			frontier,
+		//			frontier_size,
+		//			h_graph_mask);
+		//		free(frontier);
+		//		frontier = new_frontier;
+		//	}
+		//	new_frontier = BFS_sparse(
+		//						frontier,
+		//						graph_vertices,
+		//						graph_edges,
+		//						graph_degrees,
+		//						h_graph_parents,
+		//						frontier_size);
+		//	free(frontier);
+		//	frontier = new_frontier;
+		//	++hops;
+		//	last_is_dense = false;
+		//	// Update the parents, and get the out_degree again
+		//	yi += frontier_size;
+		//	mark_off_hubs_sparse(
+		//					frontier,
+		//					frontier_size,
+		//					is_hub);
+		//	if (0 == frontier_size) {
+		//		break;
+		//	}
+		//	out_degree = update_sparse(
+		//						frontier,
+		//						frontier_size,
+		//						graph_degrees,
+		//						h_graph_parents,
+		//						h_cost);
+		//}
 	}
 	
 
