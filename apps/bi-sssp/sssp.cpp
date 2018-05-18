@@ -9,11 +9,13 @@
 #include <omp.h>
 #include <unistd.h>
 #include <getopt.h>
+#include <vector>
 using std::string;
 using std::getline;
 using std::cout;
 using std::endl;
 using std::to_string;
+using std::vector;
 
 
 unsigned NNODES, NEDGES;
@@ -373,6 +375,7 @@ inline void sssp_kernel_dense_weighted(
 				int *graph_updating_active,
 				int *is_active_side,
 				int *is_updating_active_side,
+				unsigned *h_graph_parents,
 				unsigned *dists, 
 				const unsigned &edge_i_start, 
 				const unsigned &edge_i_bound)
@@ -390,6 +393,7 @@ inline void sssp_kernel_dense_weighted(
 				graph_updating_active[end] = 1;
 				is_updating_active_side[end/TILE_WIDTH] = 1;
 			}
+			h_graph_parents[end] = head;
 		}
 	}
 }
@@ -404,6 +408,7 @@ inline void scheduler_dense_weighted(
 					int *graph_updating_active,
 					int *is_active_side,
 					int *is_updating_active_side,
+					unsigned *h_graph_parents,
 					unsigned *dists, 
 					const unsigned &start_row_index,
 					const unsigned &tile_step)
@@ -434,6 +439,7 @@ inline void scheduler_dense_weighted(
 				graph_updating_active,
 				is_active_side,
 				is_updating_active_side,
+				h_graph_parents,
 				dists, 
 				tile_offsets[tile_id], 
 				bound_edge_i);
@@ -482,6 +488,7 @@ inline void BFS_dense_weighted(
 					int *h_updating_graph_mask,
 					int *is_active_side,
 					int *is_updating_active_side,
+					unsigned *h_graph_parents,
 					unsigned *dists)
 {
 	unsigned remainder = SIDE_LENGTH % ROW_STEP;
@@ -497,6 +504,7 @@ inline void BFS_dense_weighted(
 				h_updating_graph_mask,
 				is_active_side,
 				is_updating_active_side,
+				h_graph_parents,
 				dists, 
 				side_id,
 				ROW_STEP);
@@ -513,6 +521,7 @@ inline void BFS_dense_weighted(
 				h_updating_graph_mask,
 				is_active_side,
 				is_updating_active_side,
+				h_graph_parents,
 				dists, 
 				bound_side_id,
 				remainder);
@@ -627,6 +636,7 @@ inline unsigned *BFS_kernel_sparse_weighted(
 				unsigned &queue_size,
 				//unsigned *num_paths,
 				int *visited,
+				unsigned *h_graph_parents,
 				unsigned *dists)
 {
 	//int *visited = (int *) calloc(NNODES, sizeof(int));
@@ -685,6 +695,7 @@ inline unsigned *BFS_kernel_sparse_weighted(
 			if (dist_written && !visited[end]) {
 				visited[end] = 1;
 				new_frontier_tmp[frontier_i] = end;
+				h_graph_parents[end] = start;
 			} else {
 				new_frontier_tmp[frontier_i] = (unsigned) -1;
 			}
@@ -819,6 +830,7 @@ inline unsigned *BFS_sparse_weighted(
 				//int *h_graph_visited,
 				//unsigned *num_paths
 				int *h_updating_graph_mask,
+				unsigned *h_graph_parents,
 				unsigned *dists)
 {
 	return BFS_kernel_sparse_weighted(
@@ -831,6 +843,7 @@ inline unsigned *BFS_sparse_weighted(
 				queue_size,
 				//num_paths,
 				h_updating_graph_mask,
+				h_graph_parents,
 				dists);
 }
 // End Sparse, Weighted Graph
@@ -846,7 +859,7 @@ void expand_one_step(
 		unsigned &out_degree,
 		const unsigned &pattern_threshold,
 		bool &last_is_dense,
-		//unsigned *h_graph_parents,
+		unsigned *h_graph_parents,
 		unsigned *dists,
 		unsigned *graph_heads, 
 		unsigned *graph_tails, 
@@ -877,6 +890,7 @@ void expand_one_step(
 				h_updating_graph_mask,
 				is_active_side,
 				is_updating_active_side,
+				h_graph_parents,
 				dists);
 		last_is_dense = true;
 		update_dense_weighted(
@@ -907,6 +921,7 @@ void expand_one_step(
 				//h_graph_visited,
 				//num_paths
 				h_updating_graph_mask,
+				h_graph_parents,
 				dists);
 		free(h_graph_queue);
 		h_graph_queue = new_queue;
@@ -919,6 +934,26 @@ void expand_one_step(
 	}
 }
 
+void print_path(
+		const unsigned &source,
+		const unsigned &destination,
+		unsigned *h_graph_parents) 
+{
+	vector<unsigned> path;
+	unsigned vertex_id = destination;
+	path.push_back(vertex_id);
+	while (h_graph_parents[vertex_id] != vertex_id) {
+		vertex_id = h_graph_parents[vertex_id];
+		path.push_back(vertex_id);
+	}
+	
+	printf("source: %u destination: %u\n", source, destination);
+	printf("path:");
+	for (auto v = path.rbegin(); v != path.rend(); ++v) {
+		printf(" %u", *v);
+	}
+	printf("\n");
+}
 void bidirectional_sssp_weighted(
 		unsigned *graph_heads, 
 		unsigned *graph_tails, 
@@ -956,9 +991,12 @@ void bidirectional_sssp_weighted(
 	bool last_is_dense = false;
 	unsigned *new_queue = nullptr;
 	unsigned *dists = (unsigned *) malloc(NNODES * sizeof(int));
+	unsigned *h_graph_parents = (unsigned *) malloc(NNODES * sizeof(unsigned));
 
 	memset(dists, -1, NNODES * sizeof(int));
 	dists[source] = 0;
+	memset(h_graph_parents, -1, NNODES * sizeof(unsigned));
+	h_graph_parents[source] = source;
 
 	double start_time = omp_get_wtime();
 
@@ -967,26 +1005,6 @@ void bidirectional_sssp_weighted(
 	h_graph_queue = (unsigned *) malloc(frontier_size *sizeof(unsigned));
 	h_graph_queue[0] = source;
 	out_degree = graph_degrees[source];
-	//unsigned *new_queue = BFS_sparse_weighted(
-	//							h_graph_queue,
-	//							frontier_size,
-	//							graph_vertices,
-	//							graph_edges,
-	//							graph_degrees,
-	//							graph_weights_csr,
-	//							//h_graph_visited,
-	//							h_updating_graph_mask,
-	//							//num_paths
-	//							dists);
-	//free(h_graph_queue);
-	//h_graph_queue = new_queue;
-	//last_is_dense = false;
-	//// Get the sum of the number of active nodes and their out degrees
-	//out_degree =  sparse_update_weighted(
-	//						h_graph_queue,
-	//						frontier_size,
-	//						graph_degrees,
-	//						h_updating_graph_mask);
 
 	unsigned pattern_threshold = NEDGES / T_RATIO;
 
@@ -1002,7 +1020,7 @@ void bidirectional_sssp_weighted(
 				out_degree,
 				pattern_threshold,
 				last_is_dense,
-				//h_graph_parents,
+				h_graph_parents,
 				dists,
 				graph_heads, 
 				graph_tails, 
@@ -1018,6 +1036,10 @@ void bidirectional_sssp_weighted(
 		}
 	}
 
+	print_path(
+			source,
+			destination,
+			h_graph_parents);
 	double end_time = omp_get_wtime();
 	printf("%u %lf\n", NUM_THREADS, end_time - start_time);
 
@@ -1029,6 +1051,7 @@ void bidirectional_sssp_weighted(
 	free(is_active_side);
 	free(is_updating_active_side);
 	free(h_graph_queue);
+	free(h_graph_parents);
 }
 // End Weighted Graph
 ////////////////////////////////////////////////////////////
@@ -1311,7 +1334,7 @@ int main(int argc, char *argv[])
 		source = strtoul(argv[4], NULL, 0);
 		destination = strtoul(argv[5], NULL, 0);
 	} else {
-		puts("Usage: ./sssp <data> <tile_width> <stripe_length> <source> <destination> [-w] [--weighted]");
+		puts("Usage: ./sssp.out <data> <tile_width> <stripe_length> <source> <destination> [-w] [--weighted]");
 		exit(1);
 	}
 

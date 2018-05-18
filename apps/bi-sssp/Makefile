@@ -9,10 +9,10 @@ endif
 
 .PHONY: clean
 
-all: sssp
+all: sssp.out
 
-sssp: sssp.cpp
+sssp.out: sssp.cpp
 	$(ICPC) $(CPPFLAGS) -o $@ $^
 
 clean:
-	rm -f sssp
+	rm -f sssp.out
