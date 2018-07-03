@@ -9,11 +9,11 @@ endif
 
 .PHONY: clean
 
-all: undirected
+all: undirected.out
 
-undirected: undirected.cpp
+undirected.out: undirected.cpp
 #icc -mmic -O3 -o undirected undirected.cpp -w
 	$(ICPC) $(CPPFLAGS) $^ -o $@
 
 clean:
-	rm -f undirected
+	rm -f undirected.out
