@@ -2,7 +2,6 @@
    For the input data of Pruned Landmark Labeling.
    The original graph might be a directed graph. So this program processes it and outputs a 
    undirected graph.
-   It read a edge (s, t). If the s < t, then keep this edge, otherwise remove it.
 */
 #include <iostream>
 #include <fstream>
